@@ -1,6 +1,6 @@
 # Steps for use debezium + kafka to replicate data from oracle to mysql
 
-## Requiments
+## Requirements
 - Docker Compose
 - Oracle DB
 
