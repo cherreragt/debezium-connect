@@ -1,0 +1,435 @@
+{
+	"info": {
+		"_postman_id": "934a63a6-ee25-47a8-93cf-47782cad6499",
+		"name": "DB!",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "15370297"
+	},
+	"item": [
+		{
+			"name": "Crear Connector Debezium",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"\r",
+							"    const uuid = crypto.randomUUID();\r",
+							"\r",
+							"pm.globals.set(\"uuid\", uuid);"
+						],
+						"type": "text/javascript",
+						"packages": {},
+						"requests": {}
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Accept",
+						"value": "application/json"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"name\": \"oracle-customer-source-connector-{{uuid}}\",\r\n    \"config\": {\r\n        \"connector.class\": \"io.debezium.connector.oracle.OracleConnector\",\r\n        \"database.hostname\": \"172.25.32.1\",\r\n        \"database.port\": \"1521\",\r\n        \"database.user\": \"c##dbzuser\",\r\n        \"database.password\": \"dbz\",\r\n        \"database.server.name\": \"test\",\r\n        \"database.history.kafka.topic\": \"history\",\r\n        \"database.dbname\": \"pdb1.example.com\",\r\n        \"database.url\": \"jdbc:oracle:thin:@//172.25.32.1:1521/pdb1.example.com\",\r\n        \"database.connection.adapter\": \"LogMiner\",\r\n        \"database.history.kafka.bootstrap.servers\": \"kafka:9092\",\r\n        \"table.include.list\": \"DEBEZIUM.CATEGORIA,DEBEZIUM.AUTOR,DEBEZIUM.LIBRO,DEBEZIUM.USUARIO,DEBEZIUM.PRESTAMO\",\r\n        \"database.schema\": \"DEBEZIUM\",\r\n        \"database.pdb.name\": \"PDB1\",\r\n        \"snapshot.mode\": \"schema_only\",\r\n        \"include.schema.changes\": \"true\",\r\n        \"key.converter\": \"org.apache.kafka.connect.json.JsonConverter\",\r\n        \"value.converter\": \"org.apache.kafka.connect.json.JsonConverter\",\r\n        \"key.converter.schema.registry.url\": \"http://schema-registry:8081\",\r\n        \"topic.prefix\": \"test\",\r\n        \"schema.history.internal.kafka.bootstrap.servers\": \"kafka:9092\",\r\n        \"schema.history.internal.kafka.topic\": \"schema-{{uuid}}-changes.oracle\",\r\n        \"value.converter.schema.registry.url\": \"http://schema-registry:8081\"\r\n    }\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8083/connectors/",
+					"host": [
+						"localhost"
+					],
+					"port": "8083",
+					"path": [
+						"connectors",
+						""
+					]
+				},
+				"description": "Generated from cURL: curl -i -X POST -H \"Accept:application/json\" -H \"Content-Type:application/json\" \\\r\n  localhost:8083/connectors/ -d @oracle-connector.json\r\n"
+			},
+			"response": []
+		},
+		{
+			"name": "STATUS CONNECTOR DEBEZIUM",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8083/connectors?expand=info&expand=status",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8083",
+					"path": [
+						"connectors"
+					],
+					"query": [
+						{
+							"key": "expand",
+							"value": "info"
+						},
+						{
+							"key": "expand",
+							"value": "status"
+						}
+					]
+				},
+				"description": "Generated from cURL: curl -s \"http://localhost:8083/connectors?expand=info&expand=status\" | \\\r\njq '. | to_entries[] | [ .value.info.type, .key, .value.status.connector.state,.value.status.tasks[].state,.value.info.config.\"connector.class\"]|join(\":|:\")' | \\\r\ncolumn -s : -t| sed 's/\\\"//g'| sort"
+			},
+			"response": []
+		},
+		{
+			"name": "Configurar MySQL Local Sink (Kafka → MySQL)",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Lista de tablas con su PK\r",
+							"const tablas = [\r",
+							"  { nombre: \"CATEGORIA\", pk: \"ID\" },\r",
+							"  { nombre: \"AUTOR\", pk: \"ID\" },\r",
+							"  { nombre: \"LIBRO\", pk: \"ID\" },\r",
+							"  { nombre: \"USUARIO\", pk: \"ID\" },\r",
+							"  { nombre: \"PRESTAMO\", pk: \"ID\" }\r",
+							"];\r",
+							"\r",
+							"// Función para esperar un tiempo (en ms)\r",
+							"function delay(ms) {\r",
+							"    return new Promise(resolve => setTimeout(resolve, ms));\r",
+							"}\r",
+							"\r",
+							"// Función asincrónica para crear los conectores uno a uno con pausa\r",
+							"(async () => {\r",
+							"  for (const tabla of tablas) {\r",
+							"    const uuid = crypto.randomUUID();\r",
+							"    const body = {\r",
+							"      \"name\": `jdbc-mysql-sink-${tabla.nombre.toLowerCase()}-${uuid}`,\r",
+							"      \"config\": {\r",
+							"        \"connector.class\": \"io.confluent.connect.jdbc.JdbcSinkConnector\",\r",
+							"        \"key.converter\": \"org.apache.kafka.connect.json.JsonConverter\",\r",
+							"        \"key.converter.schema.registry.url\": \"http://schema-registry:8081\",\r",
+							"        \"database.hostname\": \"172.25.32.1\",\r",
+							"        \"tasks.max\": \"1\",\r",
+							"        \"database.server.name\": \"test\",\r",
+							"        \"database.history.kafka.topic\": \"history\",\r",
+							"        \"connection.url\": \"jdbc:mysql://172.25.32.1:3306/DEBEZIUM\",\r",
+							"        \"database.port\": \"3306\",\r",
+							"        \"database.user\": \"root\",\r",
+							"        \"database.password\": \"root\",\r",
+							"        \"connection.user\": \"root\",\r",
+							"        \"connection.username\": \"root\",\r",
+							"        \"connection.password\": \"root\",\r",
+							"        \"insert.mode\": \"upsert\",\r",
+							"        \"delete.enabled\": \"true\", \r",
+							"        \"auto.create\": \"false\",\r",
+							"        \"primary.key.mode\": \"record_key\",\r",
+							"        \"primary.key.fields\": tabla.pk,\r",
+							"        \"auto.evolve\": \"true\",\r",
+							"        \"schema.evolution\": \"basic\",\r",
+							"        \"database.time_zone\": \"UTC\",\r",
+							"        \"topics\": `test.DEBEZIUM.${tabla.nombre}`,\r",
+							"        \"schema.history.internal.kafka.bootstrap.servers\": \"kafka:9092\",\r",
+							"        \"transforms\": \"unwrap\",\r",
+							"        \"transforms.unwrap.type\": \"io.debezium.transforms.ExtractNewRecordState\",\r",
+							"        \"transforms.unwrap.drop.tombstones\": \"false\",//true\r",
+							"        \"transforms.unwrap.delete.handling.mode\": \"drop\",//rewrite\r",
+							"        \"transforms.unwrap.add.fields\": \"op,table,source.ts_ms\",\r",
+							"        \"table.name.format\": `${tabla.nombre.toLowerCase()}`,\r",
+							"        \"pk.mode\": \"record_key\",\r",
+							"        \"pk.fields\": tabla.pk\r",
+							"      }\r",
+							"    };\r",
+							"\r",
+							"    console.log(`⏳ Creando conector para ${tabla.nombre}...`);\r",
+							"\r",
+							"    // Enviar el request\r",
+							"    pm.sendRequest({\r",
+							"      url: \"http://localhost:8083/connectors\",\r",
+							"      method: \"POST\",\r",
+							"      header: { \"Content-Type\": \"application/json\" },\r",
+							"      body: {\r",
+							"        mode: \"raw\",\r",
+							"        raw: JSON.stringify(body)\r",
+							"      }\r",
+							"    }, (err, res) => {\r",
+							"      if (err) {\r",
+							"        console.log(`❌ Error creando conector para ${tabla.nombre}:`, err);\r",
+							"      } else {\r",
+							"        console.log(`✅ Conector creado para ${tabla.nombre}: Código ${res.code}`);\r",
+							"      }\r",
+							"    });\r",
+							"\r",
+							"    // Esperar 10 segundos antes del siguiente request\r",
+							"    await delay(10000);\r",
+							"  }\r",
+							"})();\r",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {},
+						"requests": {}
+					}
+				}
+			],
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Accept",
+						"value": "application/json"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"name\": \"jdbc-mysql-sink-connector\",\r\n    \"config\": {\r\n        \"connector.class\": \"io.confluent.connect.jdbc.JdbcSinkConnector\",\r\n        \"key.converter\": \"org.apache.kafka.connect.json.JsonConverter\",\r\n        \"key.converter.schema.registry.url\": \"http://schema-registry:8081\",\r\n        \"database.hostname\": \"172.25.32.1\",\r\n        \"tasks.max\": \"1\",\r\n        \"database.server.name\": \"test\",\r\n        \"database.history.kafka.topic\": \"history\",\r\n        \"connection.url\": \"jdbc:mysql://172.25.32.1:3306/DEBEZIUM\",\r\n        \"database.port\": \"3306\",\r\n        \"database.user\": \"root\",\r\n        \"database.password\": \"root\",\r\n        \"connection.user\": \"root\",\r\n        \"connection.username\": \"root\",\r\n        \"connection.password\": \"root\",\r\n        //\"database.server.id\": \"184054\",  \r\n        \"insert.mode\": \"upsert\",\r\n        //\"delete.enabled\": \"true\",\r\n        \"auto.create\": \"true\",\r\n        \"primary.key.mode\": \"record_key\",\r\n        \"primary.key.fields\": \"ID\",\r\n        \"auto.evolve\": \"true\",\r\n        \"schema.evolution\": \"basic\",\r\n        \"database.time_zone\": \"UTC\",\r\n        \"topics\": \"test.DEBEZIUM.CATEGORIAS,test.DEBEZIUM.AUTORES,test.DEBEZIUM.LIBROS,test.DEBEZIUM.USUARIOS,test.DEBEZIUM.PRESTAMOS\",\r\n        \"schema.history.internal.kafka.bootstrap.servers\": \"kafka:9092\",\r\n        \"transforms\": \"unwrap\",\r\n        \"transforms.unwrap.type\": \"io.debezium.transforms.ExtractNewRecordState\",\r\n        \"transforms.unwrap.drop.tombstones\": \"true\",\r\n        \"transforms.unwrap.delete.handling.mode\": \"rewrite\",\r\n        \"transforms.unwrap.add.fields\": \"op,table,source.ts_ms\",\r\n        \"table.name.format\": \"CATEGORIAS\",\r\n        \"pk.mode\": \"record_key\",\r\n        \"pk.fields\": \"ID\"\r\n    }\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8083/connectors/",
+					"host": [
+						"localhost"
+					],
+					"port": "8083",
+					"path": [
+						"connectors",
+						""
+					]
+				},
+				"description": "Generated from cURL: curl -i -X POST -H \"Accept:application/json\" -H \"Content-Type:application/json\" \\\r\n  localhost:8083/connectors/ -d @mysql-sink.json\r\n"
+			},
+			"response": []
+		},
+		{
+			"name": "Configurar MySQL Remoto Sink (Kafka → MySQL) Copy",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Lista de tablas con su PK\r",
+							"const tablas = [\r",
+							"  { nombre: \"CATEGORIA\", pk: \"ID\" },\r",
+							"  { nombre: \"AUTOR\", pk: \"ID\" },\r",
+							"  { nombre: \"LIBRO\", pk: \"ID\" },\r",
+							"  { nombre: \"USUARIO\", pk: \"ID\" },\r",
+							"  { nombre: \"PRESTAMO\", pk: \"ID\" }\r",
+							"];\r",
+							"\r",
+							"// Función para esperar un tiempo (en ms)\r",
+							"function delay(ms) {\r",
+							"    return new Promise(resolve => setTimeout(resolve, ms));\r",
+							"}\r",
+							"\r",
+							"// Función asincrónica para crear los conectores uno a uno con pausa\r",
+							"(async () => {\r",
+							"  for (const tabla of tablas) {\r",
+							"    const uuid = crypto.randomUUID();\r",
+							"    const body = {\r",
+							"      \"name\": `jdbc-mysql-sink-${tabla.nombre.toLowerCase()}-${uuid}`,\r",
+							"      \"config\": {\r",
+							"        \"connector.class\": \"io.confluent.connect.jdbc.JdbcSinkConnector\",\r",
+							"        \"key.converter\": \"org.apache.kafka.connect.json.JsonConverter\",\r",
+							"        \"key.converter.schema.registry.url\": \"http://schema-registry:8081\",\r",
+							"        \"database.hostname\": \"100.109.223.117\",\r",
+							"        \"tasks.max\": \"1\",\r",
+							"        \"database.server.name\": \"test\",\r",
+							"        \"database.history.kafka.topic\": \"history\",\r",
+							"        \"connection.url\": \"jdbc:mysql://100.109.223.117:3306/DEBEZIUM\",\r",
+							"        \"database.port\": \"3306\",\r",
+							"        \"database.user\": \"remoto\",\r",
+							"        \"database.password\": \"12345\",\r",
+							"        \"connection.user\": \"remoto\",\r",
+							"        \"connection.username\": \"remoto\",\r",
+							"        \"connection.password\": \"12345\",\r",
+							"        \"insert.mode\": \"upsert\",\r",
+							"        \"delete.enabled\": \"true\", \r",
+							"        \"auto.create\": \"false\",\r",
+							"        \"primary.key.mode\": \"record_key\",\r",
+							"        \"primary.key.fields\": tabla.pk,\r",
+							"        \"auto.evolve\": \"true\",\r",
+							"        \"schema.evolution\": \"basic\",\r",
+							"        \"database.time_zone\": \"UTC\",\r",
+							"        \"topics\": `test.DEBEZIUM.${tabla.nombre}`,\r",
+							"        \"schema.history.internal.kafka.bootstrap.servers\": \"kafka:9092\",\r",
+							"        \"transforms\": \"unwrap\",\r",
+							"        \"transforms.unwrap.type\": \"io.debezium.transforms.ExtractNewRecordState\",\r",
+							"        \"transforms.unwrap.drop.tombstones\": \"false\",//true\r",
+							"        \"transforms.unwrap.delete.handling.mode\": \"drop\",//rewrite\r",
+							"        \"transforms.unwrap.add.fields\": \"op,table,source.ts_ms\",\r",
+							"        \"table.name.format\": `${tabla.nombre.toLowerCase()}`,\r",
+							"        \"pk.mode\": \"record_key\",\r",
+							"        \"pk.fields\": tabla.pk\r",
+							"      }\r",
+							"    };\r",
+							"\r",
+							"    console.log(`⏳ Creando conector para ${tabla.nombre}...`);\r",
+							"\r",
+							"    // Enviar el request\r",
+							"    pm.sendRequest({\r",
+							"      url: \"http://localhost:8083/connectors\",\r",
+							"      method: \"POST\",\r",
+							"      header: { \"Content-Type\": \"application/json\" },\r",
+							"      body: {\r",
+							"        mode: \"raw\",\r",
+							"        raw: JSON.stringify(body)\r",
+							"      }\r",
+							"    }, (err, res) => {\r",
+							"      if (err) {\r",
+							"        console.log(`❌ Error creando conector para ${tabla.nombre}:`, err);\r",
+							"      } else {\r",
+							"        console.log(`✅ Conector creado para ${tabla.nombre}: Código ${res.code}`);\r",
+							"      }\r",
+							"    });\r",
+							"\r",
+							"    // Esperar 10 segundos antes del siguiente request\r",
+							"    await delay(10000);\r",
+							"  }\r",
+							"})();\r",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {},
+						"requests": {}
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Accept",
+						"value": "application/json"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "localhost:8083/connectors/",
+					"host": [
+						"localhost"
+					],
+					"port": "8083",
+					"path": [
+						"connectors",
+						""
+					]
+				},
+				"description": "Generated from cURL: curl -i -X POST -H \"Accept:application/json\" -H \"Content-Type:application/json\" \\\r\n  localhost:8083/connectors/ -d @mysql-sink.json\r\n"
+			},
+			"response": []
+		},
+		{
+			"name": "PLUGINS CONNECTORS",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8083/connector-plugins",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8083",
+					"path": [
+						"connector-plugins"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "DELETE CONECTORs",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// Parsear la respuesta del GET a /connectors\r",
+							"const connectors = pm.response.json();\r",
+							"\r",
+							"// Recorrer todos los conectores encontrados\r",
+							"Object.keys(connectors).forEach(name => {\r",
+							"    const deleteUrl = `http://localhost:8083/connectors/${name}`;\r",
+							"\r",
+							"    console.log(`🧹 Eliminando conector: ${name} ...`);\r",
+							"\r",
+							"    // Enviar DELETE por cada conector\r",
+							"    pm.sendRequest({\r",
+							"        url: deleteUrl,\r",
+							"        method: 'DELETE',\r",
+							"        header: { 'Content-Type': 'application/json' }\r",
+							"    }, (err, res) => {\r",
+							"        if (err) {\r",
+							"            console.log(`❌ Error eliminando ${name}:`, err);\r",
+							"        } else {\r",
+							"            console.log(`✅ Eliminado ${name}: código ${res.code}`);\r",
+							"        }\r",
+							"    });\r",
+							"});\r",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {},
+						"requests": {}
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8083/connectors?expand=info&expand=status",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8083",
+					"path": [
+						"connectors"
+					],
+					"query": [
+						{
+							"key": "expand",
+							"value": "info"
+						},
+						{
+							"key": "expand",
+							"value": "status"
+						}
+					]
+				},
+				"description": "Generated from cURL: curl -X DELETE http://localhost:8083/connectors/jdbc-mysql-sink-connector"
+			},
+			"response": []
+		}
+	]
+}
