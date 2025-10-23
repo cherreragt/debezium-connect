@@ -122,5 +122,7 @@ volumes:
 #HACER SIEMPRE
 #docker inspect kafka | grep -i '"NetworkMode"'
 
-#docker run --tty --network proyecto2_default confluentinc/cp-kafkacat kafkacat -b kafka:9092 -C -s key=s -s value=avro -r http:/schema-registry:8081 -t test.DEBEZIUM.CUSTOMERS
+#docker run --tty --network proyecto2_default confluentinc/cp-kafkacat kafkacat -b kafka:9092 -C -s key=s -s value=avro -r http:/schema-registry:8081 -t test.DEBEZIUM.CATEGORIAS
 
+# rman target /
+# DELETE NOPROMPT ARCHIVELOG ALL;
